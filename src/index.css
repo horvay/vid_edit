@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f7f5f2;
+  --surface: #ffffff;
+  --surface-2: #f1eee9;
+  --sidebar: #efece7;
+  --ink: #1f1d1a;
+  --ink-2: #4a4640;
+  --muted: #8a847b;
+  --line: #e4dfd7;
+  --line-strong: #d3ccc1;
+  --accent: #2f5bd3;
+  --ai: #c8633f;
+  --ai-soft: #f8e9e2;
+  --highlight: #fdf0a6;
+  --danger: #c2410c;
+  --shadow: 0 1px 2px rgb(31 29 26 / 0.06), 0 8px 24px -8px rgb(31 29 26 / 0.12);
+  --shadow-lg: 0 2px 6px rgb(31 29 26 / 0.06), 0 24px 48px -12px rgb(31 29 26 / 0.22);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151517;
+    --surface: #1d1d20;
+    --surface-2: #26262a;
+    --sidebar: #19191b;
+    --ink: #ecebe8;
+    --ink-2: #c3c0ba;
+    --muted: #8b8882;
+    --line: #2d2d31;
+    --line-strong: #3b3b40;
+    --accent: #7ea2ff;
+    --ai: #e48a66;
+    --ai-soft: #3a2620;
+    --highlight: rgb(250 204 21 / 0.22);
+    --danger: #f97316;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -12px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #151517;
+  --surface: #1d1d20;
+  --surface-2: #26262a;
+  --sidebar: #19191b;
+  --ink: #ecebe8;
+  --ink-2: #c3c0ba;
+  --muted: #8b8882;
+  --line: #2d2d31;
+  --line-strong: #3b3b40;
+  --accent: #7ea2ff;
+  --ai: #e48a66;
+  --ai-soft: #3a2620;
+  --highlight: rgb(250 204 21 / 0.22);
+  --danger: #f97316;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -12px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-sidebar: var(--sidebar);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-danger: var(--danger);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --shadow-soft: var(--shadow);
+  --shadow-float: var(--shadow-lg);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Your own selection is neutral, so it never looks like someone else's. */
+::selection {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast-in {
+  animation: toast-in 0.18s ease-out;
+}
+
+input[type="range"] {
+  height: 4px;
+}
