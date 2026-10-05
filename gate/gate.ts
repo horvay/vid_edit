@@ -5,17 +5,18 @@
 // proxies /api to Convex and /media to the media server. So this one gate guards the whole app.
 //
 // It's a lock on the front door, not accounts: one shared password in
-// SITE_GATE_PASSWORD (.env.local). Visitors get the browser's own password
-// prompt once (any username works), then a 30-day cookie. Websocket upgrades
-// can't answer a password prompt, so they need that cookie.
+// SITE_GATE_PASSWORD (.env.local). Visitors get a login page (login.html)
+// once, then a 30-day cookie. Everything else without that cookie, including
+// websocket upgrades, /api and /media, is refused with a bare 401.
 //
 // The tailnet and this machine are never asked: Tailscale names a tailnet
 // person in Tailscale-User-Login (and strips any copy a public visitor sends),
 // and a request made on this machine arrives on loopback with no
 // X-Forwarded-For, which Tailscale always adds to what it forwards.
 // Same scheme as ~/Work/book/dyclarity/src/server/site-gate.ts.
-import { createServer, request as forward, type IncomingMessage } from "node:http";
+import { createServer, request as forward, type IncomingMessage, type ServerResponse } from "node:http";
 import { connect } from "node:net";
+import { readFileSync } from "node:fs";
 
 const GATE_PORT = Number(process.env.GATE_PORT || 5182);
 const TARGET_PORT = Number(process.env.PORT || 5180);
@@ -23,6 +24,8 @@ const TARGET_HOST = "127.0.0.1";
 const PASSWORD = process.env.SITE_GATE_PASSWORD?.trim() ?? "";
 const COOKIE = "vid_review_gate";
 const MAX_AGE = 30 * 24 * 60 * 60;
+const LOGIN_PATH = "/__gate/login";
+const LOGIN_PAGE = readFileSync(new URL("./login.html", import.meta.url), "utf8");
 
 // Wrong-password lockout per visitor address: 10 tries per 15 minutes.
 const MAX_FAILURES = 10;
@@ -68,17 +71,6 @@ function hasCookie(req: IncomingMessage): boolean {
   return false;
 }
 
-function passwordGiven(req: IncomingMessage): boolean {
-  const auth = header(req, "authorization");
-  if (!auth.toLowerCase().startsWith("basic ")) return false;
-  try {
-    const decoded = atob(auth.slice(6).trim());
-    return safeEqual(decoded.slice(decoded.indexOf(":") + 1), PASSWORD);
-  } catch {
-    return false;
-  }
-}
-
 function lockedOut(who: string): boolean {
   const f = failures.get(who);
   if (!f) return false;
@@ -95,19 +87,62 @@ function noteFailure(who: string) {
   else f.count++;
 }
 
-/** "ok", "set-cookie" (password just given), or a refusal. */
-function check(req: IncomingMessage): "ok" | "set-cookie" | "ask" | "locked" | "closed" {
+function check(req: IncomingMessage): "ok" | "ask" | "closed" {
   if (!needsGate(req)) return "ok";
   if (!PASSWORD) return "closed";
-  if (hasCookie(req)) return "ok";
-  const who = visitor(req);
-  if (lockedOut(who)) return "locked";
-  if (passwordGiven(req)) {
-    failures.delete(who);
-    return "set-cookie";
+  return hasCookie(req) ? "ok" : "ask";
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** Where to send someone after they log in: only a path on this site. */
+function safeNext(next: string | null | undefined): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/";
+  return next.startsWith(LOGIN_PATH) ? "/" : next;
+}
+
+function loginPage(res: ServerResponse, status: number, next: string, error = "", locked = false) {
+  const html = LOGIN_PAGE.replace("{{next}}", escapeHtml(next))
+    .replace("{{error}}", error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : "")
+    .replace("{{invalid}}", error && !locked ? 'aria-invalid="true"' : "")
+    .replaceAll("{{disabled}}", locked ? "disabled" : "");
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...(locked ? { "Retry-After": "900" } : {}),
+  });
+  res.end(html);
+}
+
+const LOCKED = "Too many wrong tries. Try again in 15 minutes.";
+
+async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 8192) break;
   }
-  if (header(req, "authorization")) noteFailure(who);
-  return "ask";
+  return new URLSearchParams(body);
+}
+
+async function logIn(req: IncomingMessage, res: ServerResponse) {
+  const form = await readForm(req);
+  const next = safeNext(form.get("next"));
+  const who = visitor(req);
+  if (lockedOut(who)) return loginPage(res, 429, next, LOCKED, true);
+  if (!safeEqual(form.get("password")?.trim() ?? "", PASSWORD)) {
+    noteFailure(who);
+    return loginPage(res, 401, next, "That's not the password.");
+  }
+  failures.delete(who);
+  res.writeHead(303, {
+    Location: next,
+    "Set-Cookie": `${COOKIE}=${token}; Max-Age=${MAX_AGE}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+    "Cache-Control": "no-store",
+  });
+  res.end();
 }
 
 const server = createServer((req, res) => {
@@ -117,17 +152,20 @@ const server = createServer((req, res) => {
     res.end("Video Review isn't open to the public: no SITE_GATE_PASSWORD is set.");
     return;
   }
-  if (verdict === "locked") {
-    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "900" });
-    res.end("Too many wrong passwords. Try again in 15 minutes.");
+  const path = req.url?.split("?")[0];
+  if (path === LOGIN_PATH) {
+    if (req.method === "POST" && verdict === "ask") return void logIn(req, res);
+    res.writeHead(303, { Location: "/" });
+    res.end();
     return;
   }
   if (verdict === "ask") {
-    res.writeHead(401, {
-      "WWW-Authenticate": 'Basic realm="Video Review", charset="UTF-8"',
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
+    // Page loads get the login page; scripts, media and API calls get a plain refusal.
+    if (req.method === "GET" && header(req, "accept").includes("text/html")) {
+      const locked = lockedOut(visitor(req));
+      return loginPage(res, locked ? 429 : 401, safeNext(req.url), locked ? LOCKED : "", locked);
+    }
+    res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
     res.end("Video Review needs its password.");
     return;
   }
@@ -135,19 +173,13 @@ const server = createServer((req, res) => {
   const upstream = forward(
     { host: TARGET_HOST, port: TARGET_PORT, method: req.method, path: req.url, headers: req.headers },
     (response) => {
-      const headers = { ...response.headers };
-      if (verdict === "set-cookie") {
-        const set = `${COOKIE}=${token}; Max-Age=${MAX_AGE}; Path=/; HttpOnly; Secure; SameSite=Lax`;
-        const existing = headers["set-cookie"] ?? [];
-        headers["set-cookie"] = [...(Array.isArray(existing) ? existing : [existing]), set];
-      }
-      res.writeHead(response.statusCode ?? 502, headers);
+      res.writeHead(response.statusCode ?? 502, response.headers);
       response.pipe(res);
     },
   );
   upstream.on("error", () => {
     if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Video Review isn't running. Start it with `bun run dev`.");
+    res.end("Video Review isn't running. Start it with `bun run start`.");
   });
   req.pipe(upstream);
 });

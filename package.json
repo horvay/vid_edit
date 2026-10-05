@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "concurrently -k -n convex,web,media,gate -c blue,green,magenta,yellow \"bun run convex\" \"bun run web\" \"bun run media\" \"bun run gate\"",
     "convex": "convex dev --tail-logs disable",
+    "start": "concurrently -k -n convex,web,media,gate -c blue,green,magenta,yellow \"bun run convex\" \"bun run serve\" \"bun run media\" \"bun run gate\"",
     "web": "vite",
+    "serve": "vite build && vite preview",
     "media": "bun media/server.ts",
     "gate": "bun gate/gate.ts",
     "typecheck": "tsc -p . --noEmit && tsc -p convex --noEmit"
