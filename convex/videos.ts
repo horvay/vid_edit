@@ -24,10 +24,23 @@ export const list = query({
               .collect()
           : [];
         const notes = comments.filter((c) => !c.parentId);
+        const images = await ctx.db
+          .query("images")
+          .withIndex("by_video", (q) => q.eq("videoId", video._id))
+          .order("desc")
+          .collect();
+        const pages = await ctx.db
+          .query("notes")
+          .withIndex("by_video", (q) => q.eq("videoId", video._id))
+          .collect();
         return {
           ...video,
           openNotes: notes.filter((c) => !c.resolved).length,
           notes: notes.length,
+          imageCount: images.length,
+          noteCount: pages.length,
+          // Before the first cut, the card shows the newest image instead.
+          coverThumb: images[0]?.thumb,
         };
       }),
     );
@@ -48,8 +61,18 @@ export const get = query({
       .query("comments")
       .withIndex("by_video", (q) => q.eq("videoId", video._id))
       .collect();
+    const images = await ctx.db
+      .query("images")
+      .withIndex("by_video", (q) => q.eq("videoId", video._id))
+      .collect();
+    const pages = await ctx.db
+      .query("notes")
+      .withIndex("by_video", (q) => q.eq("videoId", video._id))
+      .collect();
     return {
       ...video,
+      imageCount: images.length,
+      noteCount: pages.length,
       versions: versions.map((ver) => {
         const notes = comments.filter((c) => c.versionId === ver._id && !c.parentId);
         return { ...ver, notes: notes.length, openNotes: notes.filter((c) => !c.resolved).length };
@@ -77,6 +100,19 @@ export const create = mutation({
     await ctx.db.insert("versions", { videoId, number: 1, uploadedBy: userId, ...file });
     return videoId;
   },
+});
+
+/** A video with no cut yet, to start with notes and images. */
+export const createEmpty = mutation({
+  args: { userId: v.id("users"), title: v.string() },
+  handler: async (ctx, { userId, title }) =>
+    ctx.db.insert("videos", {
+      title: title.trim().slice(0, 120) || "Untitled video",
+      createdBy: userId,
+      updatedAt: Date.now(),
+      trashed: false,
+      latestVersion: 0,
+    }),
 });
 
 export const addVersion = mutation({

@@ -13,6 +13,14 @@
 // Finishing remuxes the MP4 with its index up front ("faststart", no
 // re-encode) so playback starts before the whole file arrives, and grabs a
 // thumbnail. Playback and downloads are range requests on /media/files/:id.
+//
+// Reference images are small enough to arrive in one go:
+//
+//   POST /media/images   multipart {file, thumb?}  -> {file, thumb, size}
+//   GET  /media/images/<uuid>.<ext>, /media/images/<uuid>.thumb.<ext>
+//
+// The browser makes the thumbnail (it already decoded the image to measure
+// it, and it applies phone photos' rotation), so the server only stores.
 import { mkdir, rename, rm, stat, appendFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -21,12 +29,34 @@ const DATA = resolve(process.env.MEDIA_DIR || join(import.meta.dir, "..", "data"
 const UPLOADS = join(DATA, "uploads");
 const FILES = join(DATA, "files");
 const THUMBS = join(DATA, "thumbs");
+const IMAGES = join(DATA, "images");
 const CHUNK_SIZE = 16 * 1024 * 1024;
+const IMAGE_MAX = 60 * 1024 * 1024;
 const ID = /^[0-9a-f-]{36}$/;
+const IMAGE_FILE = /^[0-9a-f-]{36}(\.thumb)?\.(jpg|png|webp|gif|avif)$/;
+// Only types every browser shows inline; anything else (SVG can carry script) is refused.
+const IMAGE_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+};
+
+/** The image's real type from its first bytes, whatever the upload claims (or omits). */
+async function sniffImage(blob: Blob): Promise<string | undefined> {
+  const b = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.slice(from, to));
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (ascii(1, 4) === "PNG") return "png";
+  if (ascii(0, 4) === "GIF8") return "gif";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "webp";
+  if (ascii(4, 8) === "ftyp" && /^avi[fs]$/.test(ascii(8, 12))) return "avif";
+}
 
 // In-progress uploads only live in memory, so leftovers from a previous run are dead.
 await rm(UPLOADS, { recursive: true, force: true });
-await Promise.all([UPLOADS, FILES, THUMBS].map((d) => mkdir(d, { recursive: true })));
+await Promise.all([UPLOADS, FILES, THUMBS, IMAGES].map((d) => mkdir(d, { recursive: true })));
 
 type Upload = { name: string; size: number };
 const uploads = new Map<string, Upload>();
@@ -119,6 +149,32 @@ async function finish(uploadId: string, upload: Upload) {
   return json({ fileId, fileName: upload.name, size: await sizeOf(dest), ...meta });
 }
 
+async function storeImage(req: Request) {
+  let form;
+  try {
+    form = await req.formData();
+  } catch {
+    return json({ error: "Expected an image upload" }, 400);
+  }
+  const file = form.get("file");
+  const thumb = form.get("thumb");
+  if (!(file instanceof Blob) || !file.size) return json({ error: "No image in the upload" }, 400);
+  const ext = await sniffImage(file);
+  if (!ext) return json({ error: "Use a JPEG, PNG, WebP, GIF or AVIF image" }, 415);
+  const thumbExt = thumb instanceof Blob && thumb.size ? await sniffImage(thumb) : undefined;
+
+  const id = crypto.randomUUID();
+  const name = `${id}.${ext}`;
+  await Bun.write(join(IMAGES, name), file);
+  let thumbName = name;
+  if (thumbExt) {
+    thumbName = `${id}.thumb.${thumbExt}`;
+    await Bun.write(join(IMAGES, thumbName), thumb as Blob);
+  }
+  console.log(`[media] stored image ${(file as File).name ?? name} (${(file.size / 1e6).toFixed(1)} MB) as ${name}`);
+  return json({ file: name, thumb: thumbName, size: file.size });
+}
+
 function serveFile(req: Request, path: string, type: string, download?: string) {
   const file = Bun.file(path);
   const size = file.size;
@@ -157,7 +213,7 @@ function serveFile(req: Request, path: string, type: string, download?: string) 
 Bun.serve({
   hostname: "127.0.0.1",
   port: PORT,
-  maxRequestBodySize: CHUNK_SIZE + 1024 * 1024,
+  maxRequestBodySize: Math.max(CHUNK_SIZE, IMAGE_MAX) + 1024 * 1024,
   idleTimeout: 255,
   async fetch(req) {
     const url = new URL(req.url);
@@ -196,6 +252,15 @@ Bun.serve({
         await rm(part, { force: true });
         return json({ ok: true });
       }
+    }
+
+    if (kind === "images" && !id && req.method === "POST") return storeImage(req);
+
+    if (kind === "images" && id && IMAGE_FILE.test(id) && (req.method === "GET" || req.method === "HEAD")) {
+      const path = join(IMAGES, id);
+      if (!(await Bun.file(path).exists())) return new Response("Not found", { status: 404 });
+      const type = IMAGE_TYPES[id.split(".").pop()!]!;
+      return serveFile(req, path, type, url.searchParams.get("download") ?? undefined);
     }
 
     if (req.method === "GET" || req.method === "HEAD") {

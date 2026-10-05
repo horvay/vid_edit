@@ -26,15 +26,18 @@ export default defineSchema({
     color: v.string(),
   }),
 
+  // A video being made: its cuts (versions), notes, and reference images.
+  // It can exist before the first cut is uploaded.
   videos: defineTable({
     title: v.string(),
     createdBy: v.id("users"),
     updatedAt: v.number(),
     trashed: v.boolean(),
-    // Denormalized from the newest version, for the home grid.
+    // Denormalized from the newest version, for the home grid. 0 and unset
+    // until the first cut is uploaded.
     latestVersion: v.number(),
-    latestFileId: v.string(),
-    latestDuration: v.number(),
+    latestFileId: v.optional(v.string()),
+    latestDuration: v.optional(v.number()),
   }).index("by_trashed_updated", ["trashed", "updatedAt"]),
 
   versions: defineTable({
@@ -60,4 +63,36 @@ export default defineSchema({
   })
     .index("by_version", ["versionId"])
     .index("by_video", ["videoId"]),
+
+  notes: defineTable({
+    videoId: v.id("videos"),
+    title: v.string(),
+    body: v.string(),
+    createdBy: v.id("users"),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_video", ["videoId"]),
+
+  // Files live on the media server (media/server.ts); `file` and `thumb` are
+  // their names under /media/images/.
+  images: defineTable({
+    videoId: v.id("videos"),
+    uploadedBy: v.id("users"),
+    file: v.string(),
+    thumb: v.string(),
+    fileName: v.string(),
+    size: v.number(),
+    width: v.number(),
+    height: v.number(),
+  }).index("by_video", ["videoId"]),
+
+  imageComments: defineTable({
+    imageId: v.id("images"),
+    authorId: v.id("users"),
+    body: v.string(),
+    // Where it's pinned on the image, in 0..1 of its width and height.
+    x: v.optional(v.number()),
+    y: v.optional(v.number()),
+    editedAt: v.optional(v.number()),
+  }).index("by_image", ["imageId"]),
 });

@@ -16,7 +16,13 @@ export function Shell({ onSwitchUser }: { onSwitchUser: () => void }) {
       <ToastProvider>
         <UploadsProvider>
           <Switch>
-            <Route path="/v/:id">{(p) => <VideoPage key={p.id} videoId={p.id} />}</Route>
+            <Route path="/v/:id/:tab?/:item?">
+              {(params) => {
+                // wouter's types miss optional params in this pattern.
+                const p = params as unknown as { id: string; tab?: string; item?: string };
+                return <VideoPage key={p.id} videoId={p.id} tab={p.tab} item={p.item} />;
+              }}
+            </Route>
             <Route>
               <Home />
             </Route>

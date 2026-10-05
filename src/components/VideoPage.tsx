@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from "convex/react";
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   Download,
+  Images,
   Keyboard,
   MoveUpRight,
+  NotebookPen,
   PenLine,
   Square,
   Undo2,
@@ -15,21 +16,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import { cn, useMediaQuery } from "../lib/hooks";
+import { ImagesTab } from "../images/ImagesTab";
+import { cn, useFileDrag, useMediaQuery } from "../lib/hooks";
 import { useMe } from "../lib/identity";
 import { bytes, relativeTime, timecode } from "../lib/time";
+import { NotesTab } from "../notes/NotesTab";
 import { CommentsPanel, Composer, type ComposerHandle, type Range } from "../player/Comments";
 import { DRAW_COLORS, type Shape, type Tool } from "../player/Drawing";
 import { Playback } from "../player/playback";
 import { Player, type Marker } from "../player/Player";
+import { DropOverlay } from "./DropOverlay";
 import { Modal } from "./Modal";
-import { ProfileButton } from "./Shell";
+import { StudioBar, StudioProvider, useStudio, type Tab, type VideoData } from "./Studio";
 import { useToast } from "./Toast";
 import { useUploads } from "./Uploads";
 
 type Comment = Doc<"comments">;
 
-export function VideoPage({ videoId }: { videoId: string }) {
+export function VideoPage({ videoId, tab, item }: { videoId: string; tab?: string; item?: string }) {
   const video = useQuery(api.videos.get, { videoId });
   if (video === undefined) return <div className="grid h-full place-items-center text-muted">Loading…</div>;
   if (video === null) {
@@ -44,16 +48,115 @@ export function VideoPage({ videoId }: { videoId: string }) {
       </div>
     );
   }
-  return <Review video={video} />;
+  return <Studio video={video} tab={tab === "notes" || tab === "images" ? tab : "review"} item={item} />;
 }
 
-type VideoData = NonNullable<ReturnType<typeof useQuery<typeof api.videos.get>>>;
+function Studio({ video, tab, item }: { video: VideoData; tab: Tab; item?: string }) {
+  const [location] = useLocation();
+  const search = useSearch();
+  // Each tab link goes back to where you were on that tab (the version and
+  // spot on Review, the open note on Notes).
+  const base = `/v/${video._id}`;
+  const [links, setLinks] = useState<Record<Tab, string>>({
+    review: base,
+    notes: `${base}/notes`,
+    images: `${base}/images`,
+  });
+  const here = location + (search ? `?${search}` : "");
+  if (links[tab] !== here) setLinks({ ...links, [tab]: here });
+  // Review stays mounted once opened, so a look at the notes doesn't lose your place in the video.
+  const [reviewOpened, setReviewOpened] = useState(tab === "review");
+  if (tab === "review" && !reviewOpened) setReviewOpened(true);
 
-function Review({ video }: { video: VideoData }) {
+  return (
+    <StudioProvider value={{ video, tab, links }}>
+      {reviewOpened && (
+        <div className={cn("h-full", tab !== "review" && "hidden")}>
+          {video.versions.length ? (
+            <Review video={video} active={tab === "review"} search={links.review.split("?")[1] ?? ""} />
+          ) : (
+            <FirstCut active={tab === "review"} />
+          )}
+        </div>
+      )}
+      {tab === "notes" && <NotesTab noteId={item} />}
+      {tab === "images" && <ImagesTab imageId={item} />}
+    </StudioProvider>
+  );
+}
+
+/** Review before there's anything to review. */
+function FirstCut({ active }: { active: boolean }) {
+  const { video, links } = useStudio();
+  const { start, uploads } = useUploads();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const upload = (files: File[]) => start(files, { kind: "version", videoId: video._id as Id<"videos"> });
+  const dragging = useFileDrag(upload, active);
+  const busy = uploads.some(
+    (u) => u.target.kind === "version" && u.target.videoId === video._id && u.status !== "error",
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <StudioBar />
+      <div className="scroll-thin grid min-h-0 flex-1 place-items-center overflow-y-auto p-4">
+        <div className="w-full max-w-xl text-center">
+          <input
+            ref={fileInput}
+            type="file"
+            accept="video/*,.mp4,.mov,.m4v"
+            hidden
+            onChange={(e) => {
+              upload([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInput.current?.click()}
+            disabled={busy}
+            className="flex w-full flex-col items-center rounded-3xl border-2 border-dashed border-line-strong px-6 py-14 transition hover:border-accent hover:bg-surface disabled:pointer-events-none"
+          >
+            <Upload size={30} className="text-muted" />
+            <p className="mt-4 text-lg font-semibold">{busy ? "Uploading the first cut…" : "Upload the first cut"}</p>
+            <p className="mt-1 text-sm text-muted">
+              {busy ? "It shows up here as soon as it's ready." : "Drop an MP4 here, or click to choose one."}
+            </p>
+          </button>
+          <p className="mt-8 text-sm text-muted">Not there yet? Plan it out first:</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Link
+              href={links.notes}
+              className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-soft hover:border-line-strong"
+            >
+              <NotebookPen size={20} className="shrink-0 text-accent" />
+              <span>
+                <span className="block text-sm font-semibold">Notes</span>
+                <span className="block text-xs text-muted">Script, shot list, ideas</span>
+              </span>
+            </Link>
+            <Link
+              href={links.images}
+              className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-soft hover:border-line-strong"
+            >
+              <Images size={20} className="shrink-0 text-accent" />
+              <span>
+                <span className="block text-sm font-semibold">Images</span>
+                <span className="block text-xs text-muted">References, frames, mood board</span>
+              </span>
+            </Link>
+          </div>
+        </div>
+      </div>
+      {dragging && <DropOverlay label="Drop to upload the first cut" />}
+    </div>
+  );
+}
+
+function Review({ video, active, search }: { video: VideoData; active: boolean; search: string }) {
   const me = useMe();
   const toast = useToast();
   const [, navigate] = useLocation();
-  const params = new URLSearchParams(useSearch());
+  const params = new URLSearchParams(search);
   // Without ?v= we show whatever was newest when the page opened, so someone
   // else uploading a version doesn't swap the video out mid-review.
   const [opened] = useState(video.latestVersion);
@@ -77,6 +180,11 @@ function Review({ video }: { video: VideoData }) {
   const [showKeys, setShowKeys] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const isWide = useMediaQuery("(min-width: 1024px)");
+
+  // Leaving for another tab pauses, so nothing plays behind it.
+  useEffect(() => {
+    if (!active) pb.pause();
+  }, [active, pb]);
 
   // Switching versions starts fresh.
   useEffect(() => {
@@ -155,6 +263,7 @@ function Review({ video }: { video: VideoData }) {
 
   // Keyboard shortcuts, when not typing.
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -187,7 +296,7 @@ function Review({ video }: { video: VideoData }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pb, toggleDraw, drawing]);
+  }, [pb, toggleDraw, drawing, active]);
 
   const aspect = version.width && version.height ? version.width / version.height : 16 / 9;
   const annotation =
@@ -199,7 +308,7 @@ function Review({ video }: { video: VideoData }) {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar video={video} version={version} onShowKeys={() => setShowKeys(true)} />
+      <ReviewBar video={video} version={version} onShowKeys={() => setShowKeys(true)} />
       {version.number !== video.latestVersion && (
         <div className="flex items-center justify-center gap-2 bg-amber-400/15 px-4 py-1.5 text-sm text-amber-800 dark:text-amber-200">
           You're looking at version {version.number}.
@@ -282,7 +391,7 @@ function Review({ video }: { video: VideoData }) {
 
 // ---------------------------------------------------------------------------
 
-function TopBar({
+function ReviewBar({
   video,
   version,
   onShowKeys,
@@ -291,31 +400,11 @@ function TopBar({
   version: VideoData["versions"][number];
   onShowKeys: () => void;
 }) {
-  const rename = useMutation(api.videos.rename);
   const { start } = useUploads();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState(video.title);
-  useEffect(() => setTitle(video.title), [video.title]);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2 sm:gap-2 sm:px-3">
-      <Link
-        href="/"
-        aria-label="All videos"
-        className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink"
-      >
-        <ArrowLeft size={18} />
-      </Link>
-      <input
-        value={title}
-        aria-label="Title"
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={() => title.trim() !== video.title && rename({ videoId: video._id, title })}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        className="h-9 min-w-0 flex-1 truncate rounded-lg bg-transparent px-2 font-semibold outline-none hover:bg-surface-2 focus:bg-surface-2 sm:max-w-md"
-      />
-      <VersionMenu video={video} version={version} />
-      <div className="hidden flex-1 sm:block" />
+    <StudioBar left={<VersionMenu video={video} version={version} />}>
       <input
         ref={fileInput}
         type="file"
@@ -347,8 +436,7 @@ function TopBar({
       >
         <Keyboard size={17} />
       </button>
-      <ProfileButton />
-    </header>
+    </StudioBar>
   );
 }
 
@@ -452,7 +540,7 @@ function DrawToolbar({
           <Icon size={16} />
         </button>
       ))}
-      <span className="mx-1 h-5 w-px bg-white/20" />
+      <span className="mx-0.5 h-5 w-px bg-white/20 sm:mx-1" />
       {DRAW_COLORS.map((c) => (
         <button
           key={c}
@@ -462,7 +550,7 @@ function DrawToolbar({
           style={{ background: c }}
         />
       ))}
-      <span className="mx-1 h-5 w-px bg-white/20" />
+      <span className="mx-0.5 h-5 w-px bg-white/20 sm:mx-1" />
       <button
         onClick={onUndo}
         disabled={!canUndo}
@@ -474,7 +562,7 @@ function DrawToolbar({
       <button
         onClick={onClear}
         disabled={!canUndo}
-        className="h-8 rounded-lg px-2 text-xs hover:bg-white/10 disabled:opacity-30"
+        className="hidden h-8 rounded-lg px-2 text-xs hover:bg-white/10 disabled:opacity-30 sm:block"
       >
         Clear
       </button>

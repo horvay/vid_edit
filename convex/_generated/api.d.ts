@@ -9,6 +9,8 @@
  */
 
 import type * as comments from "../comments.js";
+import type * as images from "../images.js";
+import type * as notes from "../notes.js";
 import type * as users from "../users.js";
 import type * as videos from "../videos.js";
 
@@ -20,6 +22,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   comments: typeof comments;
+  images: typeof images;
+  notes: typeof notes;
   users: typeof users;
   videos: typeof videos;
 }>;

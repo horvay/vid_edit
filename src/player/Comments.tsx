@@ -547,7 +547,7 @@ function ToolButton({
 }
 
 // Enter sends, Shift+Enter is a new line, Escape cancels.
-const AutoTextarea = forwardRef<
+export const AutoTextarea = forwardRef<
   HTMLTextAreaElement,
   {
     value: string;

@@ -40,8 +40,8 @@ export function Onboarding({ onDone }: { onDone: (userId: string) => void }) {
           <div className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-ink text-2xl font-bold text-bg shadow-soft">
             <Film size={22} />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Welcome to Video Review</h1>
-          <p className="mt-1 text-muted">Watch the cut, leave notes right on the timeline.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Welcome to Video Studio</h1>
+          <p className="mt-1 text-muted">Plan it, collect references, review every cut together.</p>
         </div>
 
         {users && users.length > 0 && (
@@ -96,7 +96,7 @@ export function Onboarding({ onDone }: { onDone: (userId: string) => void }) {
             disabled={!name.trim() || busy}
             className="mt-5 h-11 w-full rounded-xl bg-ink font-medium text-bg transition hover:opacity-90 disabled:opacity-40"
           >
-            Start reviewing
+            Get started
           </button>
         </form>
       </div>

@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)" />
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f1d1a'/><path d='M12 9.5v13l11-6.5z' fill='white'/></svg>" />
-    <title>Video Review</title>
+    <title>Video Studio</title>
     <script>
       try {
         const t = localStorage.getItem("vidreview.theme");
@@ -16,7 +16,29 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Shown until React renders, so a slow phone sees "Loading…" instead of a blank page. -->
+    <div id="root"><div id="boot" style="display:grid;place-items:center;height:100vh;font:15px system-ui,sans-serif;color:#8a8580">Loading…</div></div>
+    <script>
+      // If the app never starts (a script fails to load, or React crashes), say so on the page.
+      (function () {
+        function show(msg) {
+          var root = document.getElementById("root");
+          if (!root || (root.firstElementChild && root.firstElementChild.id !== "boot")) return;
+          root.innerHTML =
+            '<div style="padding:24px;font:15px system-ui,sans-serif;color:#8a8580">' +
+            '<p style="margin:0 0 8px;font-weight:600">Video Studio couldn’t start.</p>' +
+            '<p style="margin:0 0 12px">Try reloading. If it keeps happening, send this along:</p>' +
+            '<pre style="white-space:pre-wrap;font-size:12px;margin:0"></pre></div>';
+          root.querySelector("pre").textContent = msg + "\n\n" + navigator.userAgent;
+        }
+        window.addEventListener("error", function (e) {
+          show(e.message || "Couldn’t load " + ((e.target && (e.target.src || e.target.href)) || "a script"));
+        }, true);
+        window.addEventListener("unhandledrejection", function (e) {
+          show(String((e.reason && (e.reason.stack || e.reason.message)) || e.reason));
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

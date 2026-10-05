@@ -1,8 +1,17 @@
-# Video Review
+# Video Studio
 
-Upload a cut, watch it together, and leave comments pinned to the exact
-moment, like lawn.video or Frame.io but running on your own machine for
-everyone on your TailNet.
+Everything for making a video, shared with everyone on your TailNet and
+running on your own machine. Each video has three tabs:
+
+- **Review:** upload a cut, watch it together, and leave comments pinned to
+  the exact moment, like lawn.video or Frame.io.
+- **Notes:** the script, shot list, ideas. Saved as you type, live for
+  everyone.
+- **Images:** references, storyboards, frames to match. Drop, paste or pick
+  them; click one to zoom in and comment on a spot.
+
+A video can start with just notes and images. Upload the first cut when you
+have one.
 
 ![Reviewing a video: comments pinned to the timeline, a drawing on the frame](docs/screenshots/review.png)
 
@@ -34,6 +43,16 @@ through v1 isn't yanked to v2 when it lands. They get a banner instead.
   <img src="docs/screenshots/mobile.png" width="300" alt="The review page on a phone">
 </p>
 
+**Notes.** Any number per video, each with a title and text, saved as you
+type. Other people's edits appear live. If two people type in the same note
+at the same moment, the second save is held back and that person picks whose
+text to keep.
+
+**Images.** Drop images anywhere on the tab, paste a screenshot, or pick
+files. The newest are on top. Click one to see it big: scroll or pinch to
+zoom, drag to pan, ←/→ for the next one. Click a spot on the image to pin a
+comment there; pins are numbered in the comment list.
+
 **All your videos in one place.** Thumbnails, length, latest version, and how
 many comments are still open.
 
@@ -43,14 +62,16 @@ many comments are still open.
 
 ```sh
 bun install      # first time only
-bun run dev
+bun run start    # for everyone: serves a built, minified app
+bun run dev      # while working on the code: live reload, but ~10 MB of
+                 # unbundled JS that a phone can sit on for a while
 ```
 
 Then open:
 
 - **On the TailNet:** https://<machine>.<tailnet>.ts.net:5180 (no password)
 - **Anyone, anywhere (optional):** https://<machine>.<tailnet>.ts.net (asks for
-  the site password once per device; any username works)
+  the site password once per device)
 
 The app only listens on `127.0.0.1`. Tailscale publishes it with one-time
 settings that survive reboots:
@@ -75,17 +96,19 @@ range requests, so you can seek before the whole file has downloaded.
 ### The password
 
 `SITE_GATE_PASSWORD` in `.env.local` is only for public (Funnel) visitors.
-People on the tailnet and this machine are never asked. Same gate as Idea
-Board: the browser's password prompt, a 30-day cookie, and a 15-minute lockout
-after ten wrong tries.
+People on the tailnet and this machine are never asked. Public visitors get a
+login page in the app's style (`gate/login.html`), then a 30-day cookie. Ten
+wrong tries from one address locks it out for 15 minutes. After changing the
+password, restart the app; everyone then has to type the new one.
 
-`bun run dev` starts four things:
+`bun run dev` and `bun run start` start the same four things (`start` builds
+the app and serves it with `vite preview` instead of the Vite dev server):
 
 | Process  | What it does |
 |----------|--------------|
 | `convex` | Local Convex backend (users, videos, versions, comments) on 127.0.0.1, data in `.convex/` |
 | `web`    | Vite dev server on 127.0.0.1:5180. It proxies `/api` to Convex and `/media` to the media server, so that one port is all the browser needs. |
-| `media`  | Media server on 127.0.0.1:5181 (`media/server.ts`): chunked uploads, playback, thumbnails. Files live in `data/` (override with `MEDIA_DIR`). |
+| `media`  | Media server on 127.0.0.1:5181 (`media/server.ts`): chunked uploads, playback, thumbnails, and reference images. Files live in `data/` (override with `MEDIA_DIR`). |
 | `gate`   | Password gate on 127.0.0.1:5182 in front of the web server, for public visitors. |
 
 ## How it works
@@ -95,6 +118,11 @@ after ten wrong tries.
   index to the front ("faststart", a copy without re-encoding) so playback
   starts instantly, and grabs a thumbnail. Convex only stores the file's id,
   name, size, duration, resolution, and frame rate.
+- **Images** are stored on the media server too (`data/images/`). The browser
+  measures each image, applies a phone photo's rotation, and makes a grid
+  thumbnail before uploading. HEIC is converted to JPEG when the browser can
+  read it. The server only keeps JPEG, PNG, WebP, GIF and AVIF, checked by
+  their bytes.
 - **Comments sync live** through Convex, so a comment shows up on everyone's
   screen as soon as it's posted.
 - **Drawings** are stored as shapes in 0..1 frame coordinates, so they line up
@@ -113,8 +141,9 @@ frame, C comment, I/O set a range, D draw, F fullscreen.
 ## Layout
 
 ```
-convex/   backend: schema, users, videos + versions, comments
-media/    media server (uploads, range playback, thumbnails)
+convex/   backend: schema, users, videos + versions, comments, notes, images
+media/    media server (uploads, range playback, thumbnails, images)
 gate/     password gate for public visitors
-src/      React app (player/ has the player, timeline, drawing, comments)
+src/      React app: player/ (player, timeline, drawing, comments),
+          notes/ (Notes tab), images/ (Images tab and viewer)
 ```
