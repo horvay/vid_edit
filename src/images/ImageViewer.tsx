@@ -16,11 +16,13 @@ import { createPortal } from "react-dom";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import { Avatar } from "../components/Avatar";
+import { DictationStatus, MicButton } from "../components/MicButton";
 import { useToast } from "../components/Toast";
 import { cn, useMediaQuery } from "../lib/hooks";
 import { useMe } from "../lib/identity";
 import { bytes, relativeTime } from "../lib/time";
-import { AutoTextarea } from "../player/Comments";
+import { useTextDictation } from "../lib/useDictation";
+import { AutoTextarea, EditBox } from "../player/Comments";
 import type { Image } from "./ImagesTab";
 
 type Comment = Doc<"imageComments">;
@@ -56,6 +58,7 @@ export function ImageViewer({
   const input = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const click = useMediaQuery("(pointer: coarse)") ? "tap" : "click";
+  const dictation = useTextDictation(input, draft, setDraft);
 
   const ordered = useMemo(() => [...(comments ?? [])].sort((a, b) => a._creationTime - b._creationTime), [comments]);
   // Pins are numbered in the order they were left.
@@ -186,12 +189,14 @@ export function ImageViewer({
 
         <div className="border-t border-line bg-surface p-3">
           <div className="rounded-xl border border-line bg-bg focus-within:border-accent">
+            <DictationStatus dictation={dictation} className="mx-1.5 mt-1.5" />
             <AutoTextarea
               ref={input}
               value={draft}
               onChange={setDraft}
               onSubmit={post}
               onCancel={() => setPin(null)}
+              dictation={dictation}
               placeholder={pin ? "Comment on this spot…" : `Comment, or ${click} the image to pin a spot…`}
               className="max-h-40 min-h-11 w-full px-3 pt-2.5 pb-1 text-sm"
             />
@@ -212,10 +217,11 @@ export function ImageViewer({
                   <MapPin size={13} /> {click === "tap" ? "Tap" : "Click"} the image to pin
                 </span>
               )}
+              <MicButton dictation={dictation} className="ml-auto size-8 rounded-lg" />
               <button
                 onClick={post}
                 disabled={!draft.trim() || busy}
-                className="ml-auto flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-sm font-medium text-bg transition disabled:opacity-30"
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-sm font-medium text-bg transition disabled:opacity-30"
               >
                 <SendHorizontal size={14} /> Post
               </button>
@@ -293,24 +299,7 @@ function CommentRow({
         )}
       </div>
       {editing ? (
-        <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-          <AutoTextarea
-            autoFocus
-            value={draft}
-            onChange={setDraft}
-            onSubmit={save}
-            onCancel={() => setEditing(false)}
-            className="w-full rounded-lg border border-accent bg-bg px-2.5 py-1.5 text-sm"
-          />
-          <div className="mt-1 flex justify-end gap-1 text-xs">
-            <button onClick={() => setEditing(false)} className="rounded-md px-2 py-1 hover:bg-surface-2">
-              Cancel
-            </button>
-            <button onClick={save} className="rounded-md bg-ink px-2 py-1 font-medium text-bg">
-              Save
-            </button>
-          </div>
-        </div>
+        <EditBox value={draft} onChange={setDraft} onSave={save} onCancel={() => setEditing(false)} />
       ) : (
         <p className="mt-1 text-sm leading-relaxed break-words whitespace-pre-wrap text-ink">
           {comment.body}

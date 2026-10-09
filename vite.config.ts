@@ -6,11 +6,15 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const convexUrl = env.VITE_CONVEX_URL || "http://127.0.0.1:3210";
   const mediaUrl = `http://127.0.0.1:${env.MEDIA_PORT || 5181}`;
-  // The browser reaches Convex and the media server through this one origin,
-  // so only one port has to be published (see README).
+  // Dictation uses Idea Board's speech server (~/Work/idea_board/stt), so the
+  // Whisper model is loaded only once on this machine's GPU.
+  const sttUrl = env.STT_URL || "http://127.0.0.1:5175";
+  // The browser reaches Convex, the media server and the speech server
+  // through this one origin, so only one port has to be published (see README).
   const proxy = {
     "/api": { target: convexUrl, ws: true, changeOrigin: true },
     "/media": { target: mediaUrl, changeOrigin: true },
+    "/stt": { target: sttUrl, changeOrigin: true },
   };
   return {
     plugins: [react(), tailwindcss()],

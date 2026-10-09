@@ -136,3 +136,9 @@ button {
 input[type="range"] {
   height: 4px;
 }
+
+/* The dictation button's ring, which grows with the microphone level. */
+.mic-live {
+  box-shadow: 0 0 0 calc(var(--level, 0) * 7px) color-mix(in srgb, var(--danger) 30%, transparent);
+  transition: box-shadow 80ms linear;
+}

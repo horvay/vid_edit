@@ -26,6 +26,7 @@ import { DRAW_COLORS, type Shape, type Tool } from "../player/Drawing";
 import { Playback } from "../player/playback";
 import { Player, type Marker } from "../player/Player";
 import { DropOverlay } from "./DropOverlay";
+import { DICTATE_SHORTCUT } from "./MicButton";
 import { Modal } from "./Modal";
 import { StudioBar, StudioProvider, useStudio, type Tab, type VideoData } from "./Studio";
 import { useToast } from "./Toast";
@@ -586,6 +587,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ["F", "Fullscreen"],
     ["Esc", "Stop drawing, deselect"],
     ["Enter", "Post (Shift+Enter for a new line)"],
+    [DICTATE_SHORTCUT, "Dictate into a comment"],
   ];
   return (
     <Modal onClose={onClose} className="max-w-sm">

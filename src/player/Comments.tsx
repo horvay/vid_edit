@@ -16,10 +16,12 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { Avatar } from "../components/Avatar";
+import { DictationStatus, MicButton } from "../components/MicButton";
 import { useToast } from "../components/Toast";
 import { cn } from "../lib/hooks";
 import { useMe } from "../lib/identity";
 import { parseTimecode, relativeTime, timecode } from "../lib/time";
+import { useTextDictation, type Dictation } from "../lib/useDictation";
 import { usePlayback, type Playback } from "./playback";
 
 type Comment = Doc<"comments">;
@@ -234,25 +236,7 @@ function Thread({
 
       <div onClick={(e) => e.stopPropagation()}>
         {replying ? (
-          <div className="mt-2 flex items-end gap-1.5">
-            <AutoTextarea
-              autoFocus
-              value={draft}
-              onChange={setDraft}
-              onSubmit={sendReply}
-              onCancel={() => setReplying(false)}
-              placeholder="Reply…"
-              className="min-h-8 flex-1 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
-            />
-            <button
-              onClick={sendReply}
-              disabled={!draft.trim()}
-              className="grid size-8 place-items-center rounded-lg bg-ink text-bg disabled:opacity-30"
-              aria-label="Send reply"
-            >
-              <SendHorizontal size={15} />
-            </button>
-          </div>
+          <ReplyBox value={draft} onChange={setDraft} onSend={sendReply} onCancel={() => setReplying(false)} />
         ) : (
           <button onClick={() => setReplying(true)} className="mt-1.5 text-xs font-medium text-muted hover:text-ink">
             Reply
@@ -285,26 +269,7 @@ function Body({ comment, pb }: { comment: Comment; pb: Playback }) {
       await edit({ commentId: comment._id, body: draft });
       setEditing(false);
     };
-    return (
-      <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-        <AutoTextarea
-          autoFocus
-          value={draft}
-          onChange={setDraft}
-          onSubmit={save}
-          onCancel={() => setEditing(false)}
-          className="w-full rounded-lg border border-accent bg-bg px-2.5 py-1.5 text-sm"
-        />
-        <div className="mt-1 flex justify-end gap-1 text-xs">
-          <button onClick={() => setEditing(false)} className="rounded-md px-2 py-1 hover:bg-surface-2">
-            Cancel
-          </button>
-          <button onClick={save} className="rounded-md bg-ink px-2 py-1 font-medium text-bg">
-            Save
-          </button>
-        </div>
-      </div>
-    );
+    return <EditBox value={draft} onChange={setDraft} onSave={save} onCancel={() => setEditing(false)} />;
   }
   if (!comment.body) return null;
   const parts = comment.body.split(/(\b\d{1,2}:\d{2}(?::\d{2})?\b)/g);
@@ -438,6 +403,8 @@ export const Composer = forwardRef<
   const input = useRef<HTMLTextAreaElement>(null);
   const time = usePlayback(pb, (s) => s.time);
   const duration = usePlayback(pb, (s) => s.duration);
+  // Pauses like typing does, so the comment stays on the frame you're talking about.
+  const dictation = useTextDictation(input, body, setBody, { onStart: () => pb.pause() });
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), []);
   const canSend = (body.trim() || shapeCount > 0) && !busy;
 
@@ -455,12 +422,14 @@ export const Composer = forwardRef<
   return (
     <div className="border-t border-line bg-surface p-3">
       <div className="rounded-xl border border-line bg-bg focus-within:border-accent">
+        <DictationStatus dictation={dictation} className="mx-1.5 mt-1.5" />
         <AutoTextarea
           ref={input}
           value={body}
           onChange={setBody}
           onSubmit={submit}
           onFocus={() => pb.pause()}
+          dictation={dictation}
           placeholder={`Comment at ${timecode(range?.start ?? time)}…`}
           className="max-h-40 min-h-11 w-full px-3 pt-2.5 pb-1 text-sm"
         />
@@ -508,10 +477,11 @@ export const Composer = forwardRef<
             <span className="hidden sm:inline">Draw</span>
             {shapeCount > 0 && <span className="tabular-nums">· {shapeCount}</span>}
           </ToolButton>
+          <MicButton dictation={dictation} className="ml-auto size-8 rounded-lg" />
           <button
             onClick={submit}
             disabled={!canSend}
-            className="ml-auto flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-sm font-medium text-bg transition disabled:opacity-30"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-sm font-medium text-bg transition disabled:opacity-30"
           >
             <Check size={15} /> Post
           </button>
@@ -546,7 +516,94 @@ function ToolButton({
   );
 }
 
-// Enter sends, Shift+Enter is a new line, Escape cancels.
+/**
+ * The reply box under a comment. Closing it stops any dictation into it.
+ * The dictation status goes below, so the mic button stays put to click again.
+ */
+function ReplyBox({
+  value,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  const field = useRef<HTMLTextAreaElement>(null);
+  const dictation = useTextDictation(field, value, onChange);
+  return (
+    <div className="mt-2">
+      <div className="flex items-end gap-1.5">
+        <AutoTextarea
+          ref={field}
+          autoFocus
+          value={value}
+          onChange={onChange}
+          onSubmit={onSend}
+          onCancel={onCancel}
+          dictation={dictation}
+          placeholder="Reply…"
+          className="min-h-8 flex-1 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
+        />
+        <MicButton dictation={dictation} />
+        <button
+          onClick={onSend}
+          disabled={!value.trim()}
+          className="grid size-8 place-items-center rounded-lg bg-ink text-bg disabled:opacity-30"
+          aria-label="Send reply"
+        >
+          <SendHorizontal size={15} />
+        </button>
+      </div>
+      <DictationStatus dictation={dictation} className="mt-1.5" />
+    </div>
+  );
+}
+
+/** Editing a comment, on a video or an image. Closing it stops any dictation into it. */
+export function EditBox({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const field = useRef<HTMLTextAreaElement>(null);
+  const dictation = useTextDictation(field, value, onChange);
+  return (
+    <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+      <AutoTextarea
+        ref={field}
+        autoFocus
+        value={value}
+        onChange={onChange}
+        onSubmit={onSave}
+        onCancel={onCancel}
+        dictation={dictation}
+        className="w-full rounded-lg border border-accent bg-bg px-2.5 py-1.5 text-sm"
+      />
+      <div className="mt-1 flex items-center justify-end gap-1 text-xs">
+        <DictationStatus dictation={dictation} className="mr-auto min-w-0" />
+        <MicButton dictation={dictation} className="size-7 rounded-md" iconSize={15} />
+        <button onClick={onCancel} className="rounded-md px-2 py-1 hover:bg-surface-2">
+          Cancel
+        </button>
+        <button onClick={onSave} className="rounded-md bg-ink px-2 py-1 font-medium text-bg">
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Enter sends, Shift+Enter is a new line, Escape cancels, and Ctrl/⌘+Shift+Space
+// starts or stops the box's dictation.
 export const AutoTextarea = forwardRef<
   HTMLTextAreaElement,
   {
@@ -558,15 +615,20 @@ export const AutoTextarea = forwardRef<
     placeholder?: string;
     className?: string;
     autoFocus?: boolean;
+    dictation?: Dictation;
   }
->(function AutoTextarea({ value, onChange, onSubmit, onCancel, onFocus, placeholder, className, autoFocus }, ref) {
+>(function AutoTextarea(
+  { value, onChange, onSubmit, onCancel, onFocus, placeholder, className, autoFocus, dictation },
+  ref,
+) {
   const el = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => el.current!, []);
   useEffect(() => {
     const t = el.current;
     if (!t) return;
     t.style.height = "auto";
-    t.style.height = `${t.scrollHeight}px`;
+    // scrollHeight leaves out the border, which the height includes.
+    t.style.height = `${t.scrollHeight + t.offsetHeight - t.clientHeight}px`;
   }, [value]);
   return (
     <textarea
@@ -581,6 +643,9 @@ export const AutoTextarea = forwardRef<
         if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
           onSubmit();
+        } else if (e.key === " " && e.shiftKey && (e.ctrlKey || e.metaKey) && dictation) {
+          e.preventDefault();
+          dictation.toggle();
         } else if (e.key === "Escape") {
           onCancel?.();
           (e.target as HTMLTextAreaElement).blur();

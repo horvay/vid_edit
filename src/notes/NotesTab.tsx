@@ -5,11 +5,13 @@ import { Link, useLocation } from "wouter";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import { Avatar } from "../components/Avatar";
+import { DictationStatus, MicButton } from "../components/MicButton";
 import { StudioBar, useStudio } from "../components/Studio";
 import { useToast } from "../components/Toast";
 import { cn, useMediaQuery } from "../lib/hooks";
 import { useMe } from "../lib/identity";
 import { relativeTime } from "../lib/time";
+import { useTextDictation } from "../lib/useDictation";
 
 type Note = Doc<"notes">;
 type User = Doc<"users">;
@@ -243,6 +245,8 @@ function NoteEditor({
     if (!held.current) timer.current = setTimeout(() => void flush(), 600);
   };
 
+  const dictation = useTextDictation(bodyEl, body, (b) => edit({ body: b }));
+
   const del = async () => {
     if (!confirm("Delete this note for everyone?")) return;
     gone.current = true;
@@ -270,10 +274,12 @@ function NoteEditor({
               ? "Edited"
               : `Saved · ${mine ? "you" : (editor?.name ?? "someone")}, ${relativeTime(note.updatedAt)}`}
         </span>
+        <DictationStatus dictation={dictation} className="ml-auto shrink-0" />
+        <MicButton dictation={dictation} className={cn("size-8 rounded-lg", dictation.phase === "idle" && "ml-auto")} />
         <button
           onClick={del}
           title="Delete note"
-          className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-danger"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-danger"
         >
           <Trash2 size={16} />
         </button>
@@ -319,6 +325,12 @@ function NoteEditor({
           placeholder="Script, shot list, ideas…"
           onChange={(e) => edit({ body: e.target.value })}
           onBlur={() => void flush()}
+          onKeyDown={(e) => {
+            if (e.key === " " && e.shiftKey && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              dictation.toggle();
+            }
+          }}
           rows={8}
           className="mt-3 block w-full resize-none overflow-hidden bg-transparent text-[15px] leading-7 outline-none placeholder:text-muted"
         />

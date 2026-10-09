@@ -53,6 +53,13 @@ files. The newest are on top. Click one to see it big: scroll or pinch to
 zoom, drag to pan, ←/→ for the next one. Click a spot on the image to pin a
 comment there; pins are numbered in the comment list.
 
+**Dictation.** Every comment, reply and note box has a mic button: talk,
+click it again, and the words go in where the cursor was. Ctrl+Shift+Space
+(⌘⇧Space on a Mac) starts and stops it from the keyboard, and Esc cancels.
+Starting it in the comment box pauses the video, so the comment stays on the
+frame you're talking about. Speech is turned into text on this machine (see
+below), and only works over HTTPS, which both addresses use.
+
 **All your videos in one place.** Thumbnails, length, latest version, and how
 many comments are still open.
 
@@ -107,7 +114,7 @@ the app and serves it with `vite preview` instead of the Vite dev server):
 | Process  | What it does |
 |----------|--------------|
 | `convex` | Local Convex backend (users, videos, versions, comments) on 127.0.0.1, data in `.convex/` |
-| `web`    | Vite dev server on 127.0.0.1:5180. It proxies `/api` to Convex and `/media` to the media server, so that one port is all the browser needs. |
+| `web`    | Vite dev server on 127.0.0.1:5180. It proxies `/api` to Convex, `/media` to the media server and `/stt` to the speech server, so that one port is all the browser needs. |
 | `media`  | Media server on 127.0.0.1:5181 (`media/server.ts`): chunked uploads, playback, thumbnails, and reference images. Files live in `data/` (override with `MEDIA_DIR`). |
 | `gate`   | Password gate on 127.0.0.1:5182 in front of the web server, for public visitors. |
 
@@ -129,6 +136,12 @@ the app and serves it with `vite preview` instead of the Vite dev server):
   at any player size.
 - **Who you are** is a name and color picked on first visit, remembered per
   browser (no accounts), the same as Idea Board.
+- **Dictation** uses Idea Board's speech server (`~/Work/idea_board/stt`,
+  127.0.0.1:5175), so the Whisper model is loaded only once on this machine's
+  small GPU. Idea Board has to be running for it to work; when it isn't, the
+  mic button says so. Set `STT_URL` in `.env.local` to use a speech server
+  elsewhere. The browser records, converts to 16 kHz WAV and uploads; the
+  text from the cursor back is sent along too, which helps Whisper spell names.
 
 Needs `ffmpeg` and `ffprobe` on the PATH. Uploads should be MP4 (H.264), which
 is what browsers play.
@@ -136,7 +149,8 @@ is what browsers play.
 ## Keyboard shortcuts
 
 Press `?` on a video. The main ones: Space/K play, ←/→ ±5 s, `,`/`.` step a
-frame, C comment, I/O set a range, D draw, F fullscreen.
+frame, C comment, I/O set a range, D draw, F fullscreen. In any comment or
+note box, Ctrl+Shift+Space dictates.
 
 ## Layout
 
