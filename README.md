@@ -140,8 +140,7 @@ the app and serves it with `vite preview` instead of the Vite dev server):
   127.0.0.1:5175), so the Whisper model is loaded only once on this machine's
   small GPU. Idea Board has to be running for it to work; when it isn't, the
   mic button says so. Set `STT_URL` in `.env.local` to use a speech server
-  elsewhere. The browser records, converts to 16 kHz WAV and uploads; the
-  text from the cursor back is sent along too, which helps Whisper spell names.
+  elsewhere. The browser records, converts to 16 kHz WAV and uploads.
 
 Needs `ffmpeg` and `ffprobe` on the PATH. Uploads should be MP4 (H.264), which
 is what browsers play.
