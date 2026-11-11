@@ -123,7 +123,12 @@ the app and serves it with `vite preview` instead of the Vite dev server):
 - **Video files stay out of the database.** The media server writes uploads
   to `data/files/`. When an upload finishes, it uses ffmpeg to move the MP4's
   index to the front ("faststart", a copy without re-encoding) so playback
-  starts instantly, and grabs a thumbnail. Convex only stores the file's id,
+  starts instantly, and grabs a thumbnail. Then, one at a time in the
+  background, it makes a playback copy in `data/streams/` (long side at most
+  1920, about 5 Mbps, same frame timing) so a 25 Mbps camera file doesn't
+  stall a viewer on a slow connection. Files already that light are
+  hard-linked, not copied. The player uses the copy once it exists and the
+  original until then; downloads always get the original. Convex only stores the file's id,
   name, size, duration, resolution, and frame rate.
 - **Images** are stored on the media server too (`data/images/`). The browser
   measures each image, applies a phone photo's rotation, and makes a grid

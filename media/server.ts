@@ -12,7 +12,16 @@
 //
 // Finishing remuxes the MP4 with its index up front ("faststart", no
 // re-encode) so playback starts before the whole file arrives, and grabs a
-// thumbnail. Playback and downloads are range requests on /media/files/:id.
+// thumbnail. Downloads are range requests on /media/files/:id.
+//
+// Camera files run 20+ Mbps, more than a Funnel visitor's connection can keep
+// up with, so playing one meant a long wait before the first frame. After an
+// upload, a queue makes a playback copy in /media/streams/:id: long side at
+// most 1920, about 5 Mbps, keyframes every 2 seconds, same frame timestamps
+// as the original so comments and frame stepping line up. A file that is
+// already that light is hard-linked instead. The player asks for the stream
+// first and falls back to the original until it exists. Files from before
+// this get their streams on the media server's first start.
 //
 // Reference images are small enough to arrive in one go:
 //
@@ -21,7 +30,7 @@
 //
 // The browser makes the thumbnail (it already decoded the image to measure
 // it, and it applies phone photos' rotation), so the server only stores.
-import { mkdir, rename, rm, stat, appendFile } from "node:fs/promises";
+import { mkdir, rename, rm, stat, appendFile, link, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const PORT = Number(process.env.MEDIA_PORT || 5181);
@@ -30,6 +39,9 @@ const UPLOADS = join(DATA, "uploads");
 const FILES = join(DATA, "files");
 const THUMBS = join(DATA, "thumbs");
 const IMAGES = join(DATA, "images");
+const STREAMS = join(DATA, "streams");
+const STREAM_BITRATE = 5_000_000;
+const STREAM_LONG_SIDE = 1920;
 const CHUNK_SIZE = 16 * 1024 * 1024;
 const IMAGE_MAX = 60 * 1024 * 1024;
 const ID = /^[0-9a-f-]{36}$/;
@@ -56,7 +68,7 @@ async function sniffImage(blob: Blob): Promise<string | undefined> {
 
 // In-progress uploads only live in memory, so leftovers from a previous run are dead.
 await rm(UPLOADS, { recursive: true, force: true });
-await Promise.all([UPLOADS, FILES, THUMBS, IMAGES].map((d) => mkdir(d, { recursive: true })));
+await Promise.all([UPLOADS, FILES, THUMBS, IMAGES, STREAMS].map((d) => mkdir(d, { recursive: true })));
 
 type Upload = { name: string; size: number };
 const uploads = new Map<string, Upload>();
@@ -108,6 +120,59 @@ async function probe(path: string) {
   };
 }
 
+/** Whether the original is already light enough to stream as it is. */
+async function streamsAsIs(path: string) {
+  const { out, code } = await run([
+    "ffprobe", "-v", "error", "-select_streams", "v:0", "-print_format", "json",
+    "-show_entries", "stream=codec_name,width,height,pix_fmt:format=bit_rate", path,
+  ]);
+  if (code !== 0) return false;
+  const info = JSON.parse(out);
+  const v = info.streams?.[0];
+  return (
+    v?.codec_name === "h264" &&
+    /^yuvj?420p$/.test(v.pix_fmt) &&
+    Math.max(v.width, v.height) <= STREAM_LONG_SIDE &&
+    Number(info.format?.bit_rate) <= STREAM_BITRATE * 1.2
+  );
+}
+
+async function makeStream(fileId: string) {
+  const src = join(FILES, `${fileId}.mp4`);
+  const dest = join(STREAMS, `${fileId}.mp4`);
+  if (await Bun.file(dest).exists()) return;
+  if (await streamsAsIs(src)) {
+    await link(src, dest);
+    return;
+  }
+  const started = Date.now();
+  const tmp = join(UPLOADS, `${fileId}.stream.mp4`);
+  const max = STREAM_LONG_SIDE;
+  const { code, err } = await run([
+    "nice", "-n", "10", "ffmpeg", "-v", "error", "-y", "-i", src, "-map", "0:v:0", "-map", "0:a?",
+    "-vf", `scale='min(iw,${max})':'min(ih,${max})':force_original_aspect_ratio=decrease:force_divisible_by=2`,
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    "-maxrate", String(STREAM_BITRATE), "-bufsize", String(STREAM_BITRATE * 2),
+    "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*2)", "-fps_mode", "passthrough",
+    "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", tmp,
+  ]);
+  if (code !== 0) {
+    await rm(tmp, { force: true });
+    console.warn(`[media] no stream for ${fileId}, playing the original: ${err.trim().split("\n")[0]}`);
+    return;
+  }
+  await rename(tmp, dest);
+  console.log(`[media] stream for ${fileId} ready in ${((Date.now() - started) / 1000).toFixed(0)}s`);
+}
+
+// One encode at a time, so playback copies never starve the machine.
+let streamQueue = Promise.resolve();
+function queueStream(fileId: string) {
+  streamQueue = streamQueue.then(() => makeStream(fileId)).catch((e) => {
+    console.warn(`[media] stream for ${fileId} failed: ${(e as Error).message}`);
+  });
+}
+
 async function finish(uploadId: string, upload: Upload) {
   const part = join(UPLOADS, `${uploadId}.part`);
   const received = await sizeOf(part);
@@ -145,6 +210,7 @@ async function finish(uploadId: string, upload: Upload) {
   ]);
 
   uploads.delete(uploadId);
+  queueStream(fileId);
   console.log(`[media] stored ${upload.name} (${(upload.size / 1e6).toFixed(1)} MB) as ${fileId}`);
   return json({ fileId, fileName: upload.name, size: await sizeOf(dest), ...meta });
 }
@@ -271,6 +337,14 @@ Bun.serve({
         if (!(await Bun.file(path).exists())) return new Response("Not found", { status: 404 });
         return serveFile(req, path, "video/mp4", url.searchParams.get("download") ?? undefined);
       }
+      if (kind === "streams") {
+        const path = join(STREAMS, `${fileId}.mp4`);
+        // Not ready yet: the player falls back to /media/files. Don't let anything cache the miss.
+        if (!(await Bun.file(path).exists())) {
+          return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+        }
+        return serveFile(req, path, "video/mp4");
+      }
       if (kind === "thumbs") {
         const path = join(THUMBS, `${fileId}.jpg`);
         if (!(await Bun.file(path).exists())) return new Response("Not found", { status: 404 });
@@ -283,3 +357,12 @@ Bun.serve({
 });
 
 console.log(`[media] 127.0.0.1:${PORT}, files in ${DATA}`);
+
+// Files uploaded before playback copies existed, or whose encode was cut off by a restart.
+const streamed = new Set(await readdir(STREAMS));
+const missing = (await readdir(FILES)).filter((f) => f.endsWith(".mp4") && !streamed.has(f));
+// Newest first: those are the ones people are watching.
+const age = new Map(await Promise.all(missing.map(async (f) => [f, (await stat(join(FILES, f))).mtimeMs] as const)));
+missing.sort((a, b) => age.get(b)! - age.get(a)!);
+if (missing.length) console.log(`[media] making playback copies for ${missing.length} earlier videos`);
+for (const f of missing) queueStream(f.replace(/\.mp4$/, ""));

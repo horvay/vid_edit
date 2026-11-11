@@ -326,7 +326,8 @@ function Review({ video, active, search }: { video: VideoData; active: boolean; 
           <Player
             key={version._id}
             pb={pb}
-            src={`/media/files/${version.fileId}.mp4`}
+            // The light playback copy, or the original while that's still being made.
+            sources={[`/media/streams/${version.fileId}.mp4`, `/media/files/${version.fileId}.mp4`]}
             aspect={aspect}
             markers={markers}
             selectedId={selectedId}

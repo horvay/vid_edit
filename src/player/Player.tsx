@@ -28,7 +28,7 @@ const RATES = [0.5, 1, 1.5, 2];
 
 export function Player({
   pb,
-  src,
+  sources,
   aspect,
   markers,
   selectedId,
@@ -39,7 +39,8 @@ export function Player({
   overlay,
 }: {
   pb: Playback;
-  src: string;
+  /** Tried in order: the browser moves on when one fails to load (say, a 404). */
+  sources: string[];
   aspect: number;
   markers: Marker[];
   selectedId: string | null;
@@ -93,11 +94,14 @@ export function Player({
         <div className="relative" style={{ width: box.w, height: box.h }}>
           <video
             ref={attach}
-            src={src}
             preload="auto"
             playsInline
             className="absolute inset-0 size-full bg-black"
-          />
+          >
+            {sources.map((s) => (
+              <source key={s} src={s} type="video/mp4" />
+            ))}
+          </video>
           <Annotation pb={pb} annotation={annotation} w={box.w} h={box.h} draw={draw} />
         </div>
         {overlay}
