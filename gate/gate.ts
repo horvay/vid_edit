@@ -178,8 +178,16 @@ const server = createServer((req, res) => {
     },
   );
   upstream.on("error", () => {
-    if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
+    if (res.headersSent) return void res.destroy();
+    res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Video Review isn't running. Start it with `bun run start`.");
+  });
+  // Browsers hang up on video downloads all the time (every seek, every reload).
+  // pipe() only stops reading then, so without this the connection to Vite stays
+  // open forever with a few MB stuck in its buffers. A month of that used up the
+  // kernel's whole TCP memory, and then every connection on the machine stalled.
+  res.on("close", () => {
+    if (!res.writableFinished) upstream.destroy();
   });
   req.pipe(upstream);
 });
